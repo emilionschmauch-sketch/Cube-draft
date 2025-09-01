@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Draft Cube / Set MTG</title>
+<style>
+:root{
+  --bg:#0a0f1a;
+  --panel-grad: linear-gradient(180deg, rgba(12,18,36,0.95), rgba(8,14,30,0.95));
+  --muted:#9fb0ff;
+  --accent:#6ea8ff;
+}
+html,body{height:100%;margin:0;font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;color:#e0e7ff;}
+body{
+  background-color: #0a0f1a;
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  transition: background-image 0.5s ease-in-out;
+}
+.bg-art { position:fixed; inset:0; z-index:-2; background-position:center; background-size:cover ; transition:background-image .45s ease-in-out; }
+.menu h1{ margin:0 0 10px 0; color:var(--accent); font-size:20px; }
+.row { display:flex; gap:8px; align-items:center; }
+select, input[type="number"], input[type="file"], textarea {
+  width:100%; padding:8px 10px; border-radius:8px; border:none; background:#172040; color:#dfeaff; font-size:14px;
+}
+  button.ghost {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.06);
+  color: var(--muted);
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-left: 8px;
+}
+.iconBox img{ width:100%; height:100%; object-fit:contain; }
+button { margin-top:12px; padding:10px 12px; border-radius:10px; border:none; background:linear-gradient(180deg,#5f97ff,#3b6be6); color:white; font-weight:600; cursor:pointer; }
+button.ghost { background:transparent; border:1px solid rgba(255,255,255,0.06); color:var(--muted); padding:8px 10px; border-radius:8px; cursor:pointer; margin-left:8px; }
+.draftArea { flex:1; background:linear-gradient(180deg, rgba(6,10,22,0.55), rgba(4,8,18,0.55)); border-radius:12px; padding:14px; min-height:520px; box-shadow:0 8px 30px rgba(0,0,0,0.55); }
+.status { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px; }
+.status .big{ font-weight:700; color:var(--accent); }
+.pack, .picks { display:flex; flex-wrap:wrap; gap:10px; padding:8px 6px; min-height:120px; }
+.card { width:130px; background:linear-gradient(180deg, rgba(10,14,30,0.8), rgba(8,12,26,0.6)); border-radius:10px; padding:8px; text-align:center; border:1px solid rgba(255,255,255,0.03); cursor:pointer; }
+.card img{ width:100%; height:170px; object-fit:cover; border-radius:8px; display:block; margin-bottom:6px; }
+.meta{ font-size:13px; color:var(--muted); height:36px; overflow:hidden; }
+.log { margin-top:12px; color:var(--muted); font-size:13px; max-height:160px; overflow:auto; white-space:pre-line; }
+@media (max-width:960px){ .container{flex-direction:column;padding:12px;} .menu{width:100%;} }
+</style>
+</head>
+<body>
+<div>
+  <button class="ghost" id="backBtn">Retour au menu</button>
+</div>
+<div class="bg-art" id="bgArt"></div>
+<div class="overlay"></div>
+<div class="container">
+  <div class="menu" id="menuDiv">
+    <h1>Draft — Cube personnel</h1>
+
+    <label for="cubeFile">Charger un cube (txt/csv)</label>
+    <input id="cubeFile" type="file" accept=".txt,.csv">
+
+    <label for="cardInput">Ou coller la liste ici</label>
+    <textarea id="cardInput" placeholder="Nom de la carte par ligne"></textarea>
+
+    <button id="btnAddCards" margin-bottom="10px">Ajouter au draft</button>
+    <br>
+
+    <label for="nbBoosters">Nombre de boosters </label>
+    <input type="number" id="nbBoosters" value="3" min="1" max="9">
+    <label for="nbBots">Nombre de bots</label>
+    <input type="number" id="nbBots" value="2" min="0" max="11">
+
+    <div id="cardCount" style="margin-top:10px; color:var(--muted); font-size:13px;"></div>
+    <div style="display:flex; gap:8px; margin-top:12px;">
+      <button id="btnStart">Commencer le draft</button>
+      <button class="ghost" id="btnReset">Réinitialiser</button>
+    </div>
+  </div>
+
+  <div class="draftArea">
+    <div class="status">
+      <div>
+        <div class="big" id="statusTitle">Prêt</div>
+        <div id="statusInfo" style="color:var(--muted); font-size:13px;">Ajoute des cartes et lance le draft.</div>
+      </div>
+    </div>
+    <h2 style="margin:8px 0 6px 0; color:var(--muted)">Pack en cours</h2>
+    <div id="pack" class="pack"></div>
+    <h2 style="margin:12px 0 6px 0; color:var(--muted)">Mes picks</h2>
+    <div id="picks" class="picks"></div>
+    <div class="log" id="log"></div>
+  </div>
+</div>
+
+<script>
+const cardInput = document.getElementById('cardInput');
+const cubeFile = document.getElementById('cubeFile');
+const btnAddCards = document.getElementById('btnAddCards');
+const cardCountDiv = document.getElementById('cardCount');
+const nbBoostersInput = document.getElementById('nbBoosters');
+const nbBotsInput = document.getElementById('nbBots');
+const btnStart = document.getElementById('btnStart');
+const btnReset = document.getElementById('btnReset');
+const backBtn = document.getElementById('backBtn');
+const packDiv = document.getElementById('pack');
+const picksDiv = document.getElementById('picks');
+const logDiv = document.getElementById('log');
+const statusTitle = document.getElementById('statusTitle');
+const statusInfo = document.getElementById('statusInfo');
+const menuDiv = document.getElementById('menuDiv');
+const draftPanel = document.querySelector('.draftArea');
+
+let allCards = [];
+let scryfallCache = {};
+let boosters = [];
+let picks = [];
+let bots = 0;
+let playersCount = 1;
+let nbBoostersTotal = 1;
+let currentRound = 1;
+
+// --- update background avec la première carte ---
+function updateBackgroundWithFirstCard(cubeList) {
+  for (let entry of cubeList) {
+    if (entry && entry.name && entry.name.toLowerCase() !== "mainboard") {
+      fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(entry.name)}`)
+        .then(res => res.json())
+        .then(card => {
+          if (card.image_uris && card.image_uris.art_crop) {
+            document.body.style.backgroundImage = `url(${card.image_uris.art_crop})`;
+          }
+        })
+        .catch(err => console.error("Erreur fond :", err));
+      break;
+    }
+  }
+}
+
+// --- parse fichier txt/csv ---
+cubeFile.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    const text = ev.target.result;
+    await parseCardText(text);
+    updateBackgroundWithFirstCard(allCards);
+  };
+  reader.readAsText(file);
+});
+
+// --- parse textarea ---
+btnAddCards.addEventListener('click', async () => {
+  const text = cardInput.value;
+  await parseCardText(text);
+  updateBackgroundWithFirstCard(allCards);
+});
+
+// --- parser texte et fetch Scryfall ---
+async function parseCardText(text){
+  const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(l=>l && l.toLowerCase()!=="mainboard");
+  const batchSize = 20;
+  for(let i=0; i<lines.length; i+=batchSize){
+    const batch = lines.slice(i, i+batchSize);
+    const promises = batch.map(async name => {
+      if(scryfallCache[name]) return scryfallCache[name];
+      try{
+        const res = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}&format=json`);
+        if(!res.ok) throw new Error('Not found');
+        const data = await res.json();
+        const image = 
+          data.image_uris?.normal ||
+          data.image_uris?.large ||
+          data.image_uris?.art_crop ||
+          data.card_faces?.[0]?.image_uris?.normal ||
+          data.card_faces?.[0]?.image_uris?.large ||
+          data.card_faces?.[0]?.image_uris?.art_crop ||
+          '';
+        const rarity = data.rarity || 'common';
+        const card = { name: data.name || name, image, rarity };
+        scryfallCache[name] = card;
+        return card;
+      } catch(e){
+        console.warn('Scryfall fetch failed for', name);
+        return null; // ignore les cartes non trouvées
+      }
+    });
+    const results = (await Promise.all(promises)).filter(c => c);
+    allCards.push(...results);
+    cardCountDiv.textContent = `Cartes ajoutées : ${allCards.length}`;
+  }
+  cardInput.value = '';
+  cubeFile.value = '';
+}
+
+// --- pick helper ---
+function pickWithoutReplacement(arr,n){  
+  const pool = arr.slice();  
+  const res = [];  
+  for(let i=0;i<n && pool.length>0;i++){  
+    const idx = Math.floor(Math.random()*pool.length);  
+    res.push(pool.splice(idx,1)[0]);  
+  }  
+  return res;  
+}  
+
+// --- generate booster ---
+function generateBalancedBooster(){  
+  const mythics = allCards.filter(c=>c.rarity==='mythic');  
+  const rares = allCards.filter(c=>c.rarity==='rare');  
+  const uncos = allCards.filter(c=>c.rarity==='uncommon');  
+  const commons = allCards.filter(c=>c.rarity==='common');  
+  const pack=[];  
+  if(Math.random()<1/8 && mythics.length>0) pack.push(mythics[Math.floor(Math.random()*mythics.length)]);  
+  else if(rares.length>0) pack.push(rares[Math.floor(Math.random()*rares.length)]);  
+  else if(mythics.length>0) pack.push(mythics[Math.floor(Math.random()*mythics.length)]);  
+  pack.push(...pickWithoutReplacement(uncos,3));  
+  pack.push(...pickWithoutReplacement(commons,11));  
+  while(pack.length<15 && allCards.length>0) pack.push(allCards[Math.floor(Math.random()*allCards.length)]);
+  return pack;
+}
+
+// --- setup round ---
+function setupRound(){  
+  boosters=[]; playersCount=bots+1;  
+  for(let p=0;p<playersCount;p++) boosters[p]=generateBalancedBooster();  
+  statusTitle.textContent=`Round ${currentRound} / ${nbBoostersTotal}`;  
+  statusInfo.textContent = `Chaque joueur a reçu un booster de 15 cartes.`;  
+  picks = Array(playersCount).fill().map(()=>[]);  
+  renderPack();  
+}
+
+// --- render pack ---
+function renderPack(){  
+  packDiv.innerHTML='';  
+  const currentPack = boosters[0];  
+  currentPack.forEach((card,i)=>{  
+    const div = document.createElement('div');  
+    div.className='card';  
+    div.innerHTML=`<img src="${card.image||''}" alt="${card.name}"><div class="meta">${card.name}</div>`;  
+    div.addEventListener('click', ()=>pickCard(i));  
+    packDiv.appendChild(div);  
+  });  
+}
+
+// --- pick card ---
+function pickCard(idx){  
+  const card = boosters[0].splice(idx,1)[0];  
+  picks[0].push(card);  
+  logDiv.textContent+=`Tu as choisi : ${card.name}\n`;  
+
+  for(let b=1;b<playersCount;b++){  
+    if(boosters[b].length>0){  
+      const botPick = boosters[b].splice(Math.floor(Math.random()*boosters[b].length),1)[0];  
+      picks[b].push(botPick);  
+      logDiv.textContent+=`Bot ${b} a choisi une carte.\n`;  
+    }  
+  }  
+
+  if(boosters[0].length===0){  
+    currentRound++;  
+    if(currentRound>nbBoostersTotal){  
+      statusTitle.textContent='Draft terminé';  
+      statusInfo.textContent='Toutes les cartes ont été choisies.';  
+      packDiv.innerHTML='';  
+      renderPicks();
+      return;  
+    }  
+    setupRound();  
+  }else{  
+    boosters = boosters.slice(1).concat([boosters[0]]);  
+    renderPack();  
+  }  
+  renderPicks();  
+}
+
+// --- render picks du joueur ---
+function renderPicks(){  
+  picksDiv.innerHTML='';  
+  picks[0].forEach(card=>{  
+    const div = document.createElement('div');  
+    div.className='card';  
+    div.innerHTML=`<img src="${card.image||''}" alt="${card.name}"><div class="meta">${card.name}</div>`;  
+    picksDiv.appendChild(div);  
+  });  
+}
+
+// --- start draft ---
+btnStart.addEventListener('click', () => {
+  if(allCards.length < 15){ 
+    alert('Le cube doit contenir au moins 15 cartes.'); 
+    return; 
+  }
+  bots = parseInt(nbBotsInput.value) || 0;
+  nbBoostersTotal = parseInt(nbBoostersInput.value) || 3;
+  
+  menuDiv.style.display = 'none';
+  draftPanel.style.display = 'block';
+  backBtn.style.display = 'inline-block';  // bouton visible
+
+  currentRound = 1;
+  setupRound();
+});
+
+// --- Reset draft ---
+btnReset.addEventListener('click', ()=>{  
+  window.location.reload();  
+});
+
+// --- Back to menu ---
+backBtn.addEventListener('click', ()=>{  
+  draftPanel.style.display='none';  
+  menuDiv.style.display='block';  
+});
+</script>
+</body>
+</html>
